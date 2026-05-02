@@ -1,9 +1,29 @@
 #include <iostream>
-#include <winsock2.h>
 #include <fstream>
 #include <sstream>
 
+#ifdef _WIN32
+#include <winsock2.h>
 #pragma comment(lib, "ws2_32.lib")
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#endif
+
+#ifdef _WIN32
+using SocketType = SOCKET;
+#else
+using SocketType = int;
+#endif
+
+void closeSocket(SocketType socket) {
+    #ifdef _WIN32
+        closesocket(socket);
+    #else
+        close(socket);
+    #endif
+}
 
 std::string serveFile(const std::string& path, const std::string& contentType) {
     std::ifstream file(path);
@@ -28,10 +48,12 @@ std::string serveFile(const std::string& path, const std::string& contentType) {
 }
 
 int main() {
+    #ifdef _WIN32
     WSADATA wsaData;
     WSAStartup(MAKEWORD(2, 2), &wsaData);
+    #endif
 
-    SOCKET serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    SocketType serverSocket = socket(AF_INET, SOCK_STREAM, 0);
 
     sockaddr_in serverAddr;
     serverAddr.sin_family = AF_INET;
@@ -44,7 +66,7 @@ int main() {
     std::cout << "Server running on http://localhost:8080\n";
 
     while (true) {
-        SOCKET clientSocket = accept(serverSocket, nullptr, nullptr);
+        SocketType clientSocket = accept(serverSocket, nullptr, nullptr);
 
         char buffer[30000] = {0};
         recv(clientSocket, buffer, sizeof(buffer), 0);
@@ -97,7 +119,7 @@ int main() {
 
         }
         else if (request.find("GET / ") != std::string::npos) {
-            response = serveFile("frontend/index.html", "text.html");
+            response = serveFile("frontend/index.html", "text/html");
 
         }
         else {
@@ -109,10 +131,12 @@ int main() {
 
 
         send(clientSocket, response.c_str(), response.length(), 0);
-        closesocket(clientSocket);
+        closeSocket(clientSocket);
     }
 
-    closesocket(serverSocket);
+    closeSocket(serverSocket);
+#ifdef _WIN32
     WSACleanup();
+#endif
     return 0;
 }
