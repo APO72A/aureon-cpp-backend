@@ -149,7 +149,7 @@ nav {
 }
 .btn-buy {
     display: inline-flex; align-items: center; gap: 10px;
-    padding: 14px 28px; border: 999px;
+    padding: 14px 28px; border-radius: 999px;
     background: linear-gradient(135deg, #ffffff, #e8e8e8);
     border: 2px solid rgba(255,255,255,0.3);
     cursor: pointer;
