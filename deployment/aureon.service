@@ -1,0 +1,23 @@
+[Unit]
+Description=AUREON C++ Backend
+Documentation=https://github.com/APO72A/aureon-cpp-backend
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/aureon-cpp-backend
+ExecStart=/root/aureon-cpp-backend/build/cpp_backend_test
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aureon
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
