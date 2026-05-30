@@ -1,9 +1,15 @@
-cmake_minimum_required(VERSION 4.2)
-project(cpp_backend_test)
+cmake_minimum_required(VERSION 3.20)
+project(aureon)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(cpp_backend_test main.cpp)
+add_executable(aureon
+    src/main.cpp
+    src/server/Platform.cpp
+    src/server/HttpResponse.cpp
+)
 
-target_link_libraries(cpp_backend_test ws2_32)
-
+if(WIN32)
+    target_link_libraries(aureon ws2_32)
+endif ()
