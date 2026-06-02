@@ -8,6 +8,7 @@ add_executable(aureon
     src/main.cpp
     src/server/Platform.cpp
     src/server/HttpResponse.cpp
+    src/server/HttpRequest.cpp
 )
 
 if(WIN32)
