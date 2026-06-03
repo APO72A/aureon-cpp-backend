@@ -9,6 +9,7 @@ add_executable(aureon
     src/server/Platform.cpp
     src/server/HttpResponse.cpp
     src/server/HttpRequest.cpp
+    src/server/Router.cpp
 )
 
 if(WIN32)
