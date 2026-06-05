@@ -92,6 +92,11 @@ HttpRequest HttpRequest::parse(const std::string& raw) {
         std::string fullPath;
         requestLine >> req.method >> fullPath >> req.httpVersion;
 
+        if (req.method.empty() || fullPath.empty() || req.httpVersion.empty()) {
+            return req;
+        }
+        req.valid = true;
+
         auto qmark = fullPath.find('?');
         if (qmark != std::string::npos) {
             req.path = fullPath.substr(0, qmark);
