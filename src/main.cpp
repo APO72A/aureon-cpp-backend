@@ -1,17 +1,19 @@
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include "server/Platform.h"
 #include "server/HttpRequest.h"
 #include "server/HttpResponse.h"
 #include "server/Router.h"
+#include "server/HttpServer.h"
+#include "fstream"
+#include "sstream"
 
 using aureon::HttpRequest;
 using aureon::HttpResponse;
 using aureon::Router;
+using aureon::HttpServer;
 
 // Reads a file from disk and returns it as an HttpResponse.
-HttpResponse serveFile(const std::string& path, const std::string& contentType) {
+static HttpResponse serveFile(const std::string& path,
+    const std::string& contentType) {
     std::ifstream file(path);
     if (!file) {
         return HttpResponse::notFound("404 - File not found");
@@ -20,88 +22,53 @@ HttpResponse serveFile(const std::string& path, const std::string& contentType) 
     fileBuffer << file.rdbuf();
 
     HttpResponse response;
-    response.statusCode = 200;
-    response.statusText = "OK";
     response.headers["Content-Type"] = contentType + "; charset=utf-8";
     response.body = fileBuffer.str();
     return response;
 }
 
-int main () {
+int main() {
     if (!aureon::platform::initNetworking()) {
-        std::cerr << "Failed to initialise networking\n";
         return 1;
     }
 
-    // Register routes ---
     Router router;
 
-    router.get("/api/status", [](const HttpRequest& req) {
+    router.get("/api/status", [](const HttpRequest&) {
         return HttpResponse::json(
             R"({"status": "online", "engine": "AUREON C++20"})");
-
     });
 
-    router.get("/api/message", [](const HttpRequest& req) {
+    router.get("/api/message", [](const HttpRequest&) {
         return HttpResponse::json(
             R"({"message": "Hello from the AUREON backend"})");
     });
 
     router.get("/api/greet", [](const HttpRequest& req) {
-        std::string name = req.query("name", "Guest");
-        std::string safeName = HttpResponse::escapeJson(name);
+        std::string safeName = HttpResponse::escapeJson(req.query("name", "Guest"));
         return HttpResponse::json(
             "{\"reply\": \"Welcome, " + safeName +
             ". AUREON backend received your request\"}");
     });
 
-    router.get("/", [](const HttpRequest& req) {
+    router.get("/", [](const HttpRequest&) {
         return serveFile("frontend/index.html", "text/html");
     });
 
-    router.get("/style.css", [](const HttpRequest& req) {
+    router.get("/style.css", [](const HttpRequest&) {
         return serveFile("frontend/style.css", "text/css");
     });
 
-    router.get("/script.js", [](const HttpRequest& req) {
+    router.get("/script.js", [](const HttpRequest&) {
         return serveFile("frontend/script.js", "application/javascript");
     });
 
-    // --- Socket setup ---
-    SocketType serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-
-    sockaddr_in serverAddr{}; // {} zero-initialises - fixes the linter warning
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(8080);
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-
-    bind(serverSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr));
-    listen(serverSocket, 5);
-
-    std::cout << "AUREON server running on http:://localhost:8080\n";
-
-    // --- Accept loop ---
-    while (true) {
-        SocketType clientSocket = accept(serverSocket, nullptr, nullptr);
-
-        char buffer[30000] = {0};
-        int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
-        if (bytesReceived <= 0) {
-            aureon::platform::closeSocket(clientSocket);
-            continue;
-        }
-
-        std::string raw(buffer,bytesReceived);
-
-        HttpRequest req = HttpRequest::parse(raw);
-
-        HttpResponse response = router.resolve(req);
-
-        std::string rawResponse = response.toRawString();
-        send(clientSocket, rawResponse.c_str(),
-            static_cast<int>(rawResponse.length()), 0);
-
-        aureon::platform::closeSocket(clientSocket);
+    HttpServer server(8080, router);
+    if (!server.start()) {
+        return 1;
     }
 
+    aureon::platform::shutdownNetworking();
+    return 0;
 }
+
