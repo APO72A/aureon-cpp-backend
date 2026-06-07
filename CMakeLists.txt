@@ -11,6 +11,7 @@ add_executable(aureon
     src/server/HttpRequest.cpp
     src/server/Router.cpp
     src/server/HttpServer.cpp
+    src/server/ThreadPool.cpp
 )
 
 if(WIN32)
