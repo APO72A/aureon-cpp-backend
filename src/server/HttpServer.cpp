@@ -7,7 +7,7 @@
 namespace aureon {
 
 HttpServer::HttpServer(int port, const Router& router)
-    : port(port), router(router) {}
+    : port(port), router(router), pool(4) {}
 
 bool HttpServer::setupSocket() {
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -85,7 +85,12 @@ bool HttpServer::start() {
         if (clientSocket == INVALID_SOCKET_VALUE) {
             continue; // accept failed for this connection, keep serving others
         }
-        handleClient(clientSocket);
+        // Hand the socket to a worker. Ownership transfers to the job -
+        // the loop does not close it; handleClient does.
+        pool.submit([this, clientSocket]() {
+            handleClient(clientSocket);
+        });
+
     }
 }
 

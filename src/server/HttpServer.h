@@ -2,6 +2,7 @@
 #include <string>
 #include "Platform.h"
 #include "Router.h"
+#include "../core/ThreadPool.h"
 
 namespace aureon {
 
@@ -16,10 +17,15 @@ public:
     // Returns false if the server failed to start (socket/bind/listen error).
     bool start();
 
+    // No copying - the server owns a thread pool, which cannot be copied.
+    HttpServer(const HttpServer&) = delete;
+    HttpServer& operator=(const HttpServer&) = delete;
+
 private:
     int port;
     const Router& router;
     SocketType serverSocket = INVALID_SOCKET_VALUE;
+    ThreadPool pool;
 
     // Set up the listening socket. Returns false on any failure.
     bool setupSocket();
