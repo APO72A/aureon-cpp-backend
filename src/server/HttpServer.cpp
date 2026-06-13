@@ -94,6 +94,10 @@ bool HttpServer::start() {
         if (!accepted) {
             // Queue full or shutting down - reject cleanly
             // Ownership never transferred, so WE close it.
+            // send a small fixed response directly (bounded work, no routing,
+            // no request parsing), then close. We do NOT call handleClient.
+            HttpResponse busy = HttpResponse::serviceUnavailable();
+            sendAll(clientSocket, busy.toRawString());
             aureon::platform::closeSocket(clientSocket);
         }
 

@@ -25,6 +25,8 @@ namespace aureon {
         static HttpResponse html(const std::string& htmlBody, int status = 200);
         static HttpResponse text(const std::string& textBody, int status = 200);
         static HttpResponse notFound(const std::string& message = "404 - Not Found");
+        static HttpResponse serviceUnavailable(
+            const std::string& message = "503 - Service Unavailable");
 
         // Escape a string so it is safe to embed inside a JSON string value.
         // This is the fix for the /api/greet injection problem.

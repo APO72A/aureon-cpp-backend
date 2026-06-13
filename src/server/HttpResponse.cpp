@@ -58,6 +58,17 @@ namespace aureon {
         return r;
     }
 
+    HttpResponse HttpResponse::serviceUnavailable(const std::string& message) {
+        HttpResponse r;
+        r.statusCode = 503;
+        r.statusText = "Service Unavailable";
+        r.headers["Content-Type"] = "text/plain; charset=utf-8";
+        // Tell well-behaved clients to back off and retry.
+        r.headers["Retry-After"] = "1";
+        r.body = message;
+        return r;
+    }
+
     std::string HttpResponse::escapeJson(const std::string& raw) {
         std::string out;
         out.reserve(raw.size());
