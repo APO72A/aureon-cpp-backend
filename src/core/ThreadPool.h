@@ -11,14 +11,15 @@ namespace aureon {
     class ThreadPool {
     public:
         // Create the pool with a fixed number of worker threads.
-        explicit ThreadPool(std::size_t workerCount);
+        ThreadPool(std::size_t workerCount, std::size_t maxQueueSize);
 
         // Shut down cleanly: stop accepting jobs, wake all workers,
         // wait for them to finish, then join them.
         ~ThreadPool();
 
-        // Add a job to the queue. A free worker will run it.
-        void submit(std::function<void()> job);
+        // Add a job to the queue. Returns false if the pool is stopping
+        // or the queue is full - the caller decides what to do with the work.
+        bool submit(std::function<void()> job);
 
         // No copying - a thread pool owns threads and a mutex,
         // which cannot be safely copied.
@@ -32,6 +33,7 @@ namespace aureon {
         std::mutex queueMutex; // the key to the queue
         std::condition_variable condition; // sleep/wake mechanism
         bool stopping = false; // shutdown flag
+        std::size_t maxQueueSize; // max jobs allowed waiting in the queue
 
         // The loop each worker thread runs forever.
         void workerLoop();

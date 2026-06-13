@@ -7,7 +7,7 @@
 namespace aureon {
 
 HttpServer::HttpServer(int port, const Router& router)
-    : port(port), router(router), pool(4) {}
+    : port(port), router(router), pool(4, 64) {}
 
 bool HttpServer::setupSocket() {
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -87,9 +87,15 @@ bool HttpServer::start() {
         }
         // Hand the socket to a worker. Ownership transfers to the job -
         // the loop does not close it; handleClient does.
-        pool.submit([this, clientSocket]() {
+        bool accepted = pool.submit([this, clientSocket]() {
             handleClient(clientSocket);
         });
+
+        if (!accepted) {
+            // Queue full or shutting down - reject cleanly
+            // Ownership never transferred, so WE close it.
+            aureon::platform::closeSocket(clientSocket);
+        }
 
     }
 }

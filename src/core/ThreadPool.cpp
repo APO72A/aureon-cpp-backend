@@ -2,7 +2,8 @@
 
 namespace aureon {
 
-    ThreadPool::ThreadPool(std::size_t workerCount) {
+    ThreadPool::ThreadPool(std::size_t workerCount, std::size_t maxQueueSize)
+        : maxQueueSize(maxQueueSize) {
         for (std::size_t i = 0; i < workerCount; ++i) {
             workers.emplace_back([this]() {
                 workerLoop();
@@ -38,12 +39,20 @@ namespace aureon {
         }
     }
 
-    void ThreadPool::submit(std::function<void()> job) {
+    bool ThreadPool::submit(std::function<void()> job) {
         {
             std::unique_lock<std::mutex> lock(queueMutex);
+
+            if (stopping) {
+                return false; // shutting down - accept nothing new
+            }
+            if (jobs.size() >= maxQueueSize) {
+                return false; // full - reject, caller handles it
+            }
             jobs.push(std::move(job));
         }
         condition.notify_one();
+        return true;
     }
 
     ThreadPool::~ThreadPool() {
