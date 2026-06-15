@@ -33,6 +33,11 @@ private:
     // Handle one accepted client connection start-to-finish.
     void handleClient(SocketType clientSocket);
 
+    // Read a complete HTTP request from the socket: full headers, then
+    // exactly Content-Length body bytes. Returns false if the request is
+    // malformed, too large, or the client disconnects early.
+    bool readRequest(SocketType clientSocket, std::string& outRequest);
+
     // Send an entire buffer, looping until all bytes are sent.
     // Replaces the raw single send() - this is your sendAll().
     bool sendAll(SocketType sock, const std::string& data);

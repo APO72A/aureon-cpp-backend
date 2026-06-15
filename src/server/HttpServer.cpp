@@ -3,6 +3,7 @@
 #include "HttpResponse.h"
 #include <iostream>
 #include <cstdint>
+#include <cctype>
 
 namespace aureon {
 
@@ -56,15 +57,91 @@ bool HttpServer::sendAll(SocketType sock, const std::string& data) {
     return true;
 }
 
+bool HttpServer::readRequest(SocketType clientSocket, std::string& outRequest) {
+    // Safety caps - the internet sends malformed nonsense; we refuse to
+    // grow without limit. These are the guardrails against a hostile client.
+    constexpr std::size_t MAX_REQUEST_SIZE = 1 * 1024 * 1024; // 1 MB total
+    constexpr std::size_t MAX_HEADER_SIZE = 16 * 1024; // 16 KB of headers
+
+    std::string raw;
+    char buffer[4096];
+    std::size_t headerEnd = std::string::npos;
+
+    // --- Phase A: read until we have the full header block (\r\n\r\n) ---
+    while (headerEnd == std::string::npos) {
+        int bytes = recv(clientSocket, buffer, sizeof(buffer), 0);
+        if (bytes <= 0) {
+            return false; // client disconnected or error before headers done
+        }
+        raw.append(buffer, static_cast<std::size_t>(bytes));
+
+        if (raw.size() > MAX_HEADER_SIZE) {
+            return false; // headers too large - refuse
+        }
+
+        headerEnd = raw.find("\r\n\r\n");
+    }
+
+    // --- Phase B: figure out how much body to expect ---
+    std::size_t bodyStart = headerEnd + 4; // skip past the \r\n\r\n
+
+    std::size_t contentLength = 0;
+    {
+        std::string headerBlock = raw.substr(0, headerEnd);
+        std::string lower = headerBlock;
+        for (char& c : lower) c = static_cast<char>(std::tolower(
+            static_cast<unsigned char>(c)));
+
+        auto pos = lower.find("content-length:");
+        if (pos != std::string::npos) {
+            std::size_t valueStart = pos + std::string("content-length:").size();
+            std::size_t lineEnd = headerBlock.find("\r\n", valueStart);
+            std::string value = headerBlock.substr(
+                valueStart,
+                (lineEnd == std::string::npos ? headerBlock.size() : lineEnd) - valueStart);
+
+            try {
+                long parsed = std::stol(value);
+                if (parsed < 0) return false; // negative length = malformed
+                contentLength = static_cast<std::size_t>(parsed);
+            } catch (...) {
+                return false; // Content-Length present but not a number
+            }
+        }
+        // No Content-Length header > contentLength stays 0 (GET, etc.)
+    }
+
+    // Reject oversized bodies beforer reading them.
+    if (bodyStart + contentLength > MAX_REQUEST_SIZE) {
+        return false;
+    }
+
+    // --- Phase C: keep reading until we have the full body ---
+    while (raw.size() - bodyStart < contentLength) {
+        int bytes = recv(clientSocket, buffer, sizeof(buffer), 0);
+        if (bytes <= 0) {
+            return false; // client disconnected mid-body
+        }
+        raw.append(buffer, static_cast<std::size_t>(bytes));
+
+        if (raw.size() > MAX_REQUEST_SIZE) {
+            return false; // total request too large
+        }
+    }
+
+    outRequest = std::move(raw);
+    return true;
+}
+
 void HttpServer::handleClient(SocketType clientSocket) {
-    char buffer[30000] = {0};
-    int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
-    if (bytesReceived <= 0) {
+    std::string raw;
+    if (!readRequest(clientSocket, raw)) {
+        // Malformed, too large, or disconnected - refuse cleanly.
+        HttpResponse bad = HttpResponse::text("400 Bad Request", 400);
+        sendAll(clientSocket, bad.toRawString());
         aureon::platform::closeSocket(clientSocket);
         return;
     }
-
-    std::string raw(buffer, bytesReceived);
 
     HttpRequest req = HttpRequest::parse(raw);
     HttpResponse response = router.resolve(req);

@@ -53,6 +53,7 @@ int main() {
             ". AUREON backend received your request\"}");
     });
 
+
     router.get("/", [](const HttpRequest&) {
         return serveFile("frontend/index.html", "text/html");
     });
