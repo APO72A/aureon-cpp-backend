@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cstdint>
 #include <cctype>
+#include <chrono>
 
 namespace aureon {
 
@@ -42,6 +43,23 @@ bool HttpServer::setupSocket() {
     return true;
 }
 
+void HttpServer::setRecvTimeout(SocketType sock, int seconds) {
+#ifdef _WIN32
+    // Windows takes a DWORD of milliseconds.
+    DWORD timeout = static_cast<DWORD>(seconds * 1000);
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
+        reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+
+#else
+    // POSIX takes a struct timeval.
+    struct timeval tv{};
+    tv.tv_sec = seconds;
+    tv.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
+        reinterpret_cast<const char*>(&tv), sizeof(tv));
+#endif
+}
+
 bool HttpServer::sendAll(SocketType sock, const std::string& data) {
     std::size_t totalSent = 0;
     while (totalSent < data.size()) {
@@ -58,32 +76,39 @@ bool HttpServer::sendAll(SocketType sock, const std::string& data) {
 }
 
 bool HttpServer::readRequest(SocketType clientSocket, std::string& outRequest) {
-    // Safety caps - the internet sends malformed nonsense; we refuse to
-    // grow without limit. These are the guardrails against a hostile client.
-    constexpr std::size_t MAX_REQUEST_SIZE = 1 * 1024 * 1024; // 1 MB total
-    constexpr std::size_t MAX_HEADER_SIZE = 16 * 1024; // 16 KB of headers
+    constexpr std::size_t MAX_REQUEST_SIZE = 1 * 1024 * 1024;
+    constexpr std::size_t MAX_HEADER_SIZE = 16 * 1024;
+    constexpr int RECV_TIMEOUT_SECONDS = 5; // Clock 1: per-recv idle limit
+    constexpr int TOTAL_DEADLINE_SECONDS = 10; // Clock 2: whole-request limit
+
+    // Clock 1: socket gives up if no bytes arrive within 5s of any single recv.
+    setRecvTimeout(clientSocket, RECV_TIMEOUT_SECONDS);
+
+    // Clock 2: the whole request must complete within 10s of starting.
+    auto startTime = std::chrono::steady_clock::now();
+    auto deadlineExceeded = [&]() {
+        auto elapsed = std::chrono::steady_clock::now() - startTime;
+        return elapsed > std::chrono::seconds(TOTAL_DEADLINE_SECONDS);
+    };
 
     std::string raw;
     char buffer[4096];
     std::size_t headerEnd = std::string::npos;
 
-    // --- Phase A: read until we have the full header block (\r\n\r\n) ---
+    // -- Phase A: read until full header block --
     while (headerEnd == std::string::npos) {
-        int bytes = recv(clientSocket, buffer, sizeof(buffer), 0);
-        if (bytes <= 0) {
-            return false; // client disconnected or error before headers done
-        }
-        raw.append(buffer, static_cast<std::size_t>(bytes));
+        if (deadlineExceeded()) return false; // Clock 2 catches the drip-feeder
 
-        if (raw.size() > MAX_HEADER_SIZE) {
-            return false; // headers too large - refuse
-        }
+        int bytes = recv(clientSocket, buffer, sizeof(buffer), 0);
+        if (bytes <= 0) return false; // Clock 1 fired, disconnect, or error
+
+        raw.append(buffer, static_cast<std::size_t>(bytes));
+        if (raw.size() > MAX_HEADER_SIZE) return false;
 
         headerEnd = raw.find("\r\n\r\n");
     }
 
-    // --- Phase B: figure out how much body to expect ---
-    std::size_t bodyStart = headerEnd + 4; // skip past the \r\n\r\n
+    std::size_t bodyStart = headerEnd + 4;
 
     std::size_t contentLength = 0;
     {
@@ -99,34 +124,27 @@ bool HttpServer::readRequest(SocketType clientSocket, std::string& outRequest) {
             std::string value = headerBlock.substr(
                 valueStart,
                 (lineEnd == std::string::npos ? headerBlock.size() : lineEnd) - valueStart);
-
             try {
                 long parsed = std::stol(value);
-                if (parsed < 0) return false; // negative length = malformed
+                if (parsed < 0) return false;
                 contentLength = static_cast<std::size_t>(parsed);
             } catch (...) {
-                return false; // Content-Length present but not a number
+                return false;
             }
         }
-        // No Content-Length header > contentLength stays 0 (GET, etc.)
     }
 
-    // Reject oversized bodies beforer reading them.
-    if (bodyStart + contentLength > MAX_REQUEST_SIZE) {
-        return false;
-    }
+    if (bodyStart + contentLength > MAX_REQUEST_SIZE) return false;
 
-    // --- Phase C: keep reading until we have the full body ---
+    // --- Phase C: read body, both clocks still enforced ---
     while (raw.size() - bodyStart < contentLength) {
-        int bytes = recv(clientSocket, buffer, sizeof(buffer), 0);
-        if (bytes <= 0) {
-            return false; // client disconnected mid-body
-        }
-        raw.append(buffer, static_cast<std::size_t>(bytes));
+        if (deadlineExceeded()) return false; // Clock 2 again, for slow bodies
 
-        if (raw.size() > MAX_REQUEST_SIZE) {
-            return false; // total request too large
-        }
+        int bytes = recv(clientSocket, buffer, sizeof(buffer), 0);
+        if (bytes <= 0) return false;
+
+        raw.append(buffer, static_cast<std::size_t>(bytes));
+        if (raw.size() > MAX_REQUEST_SIZE) return false;
     }
 
     outRequest = std::move(raw);

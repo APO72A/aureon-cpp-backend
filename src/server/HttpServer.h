@@ -30,6 +30,8 @@ private:
     // Set up the listening socket. Returns false on any failure.
     bool setupSocket();
 
+    void setRecvTimeout(SocketType sock, int seconds);
+
     // Handle one accepted client connection start-to-finish.
     void handleClient(SocketType clientSocket);
 
